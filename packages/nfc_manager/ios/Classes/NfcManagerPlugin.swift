@@ -46,24 +46,42 @@ public class NfcManagerPlugin: NSObject, FlutterPlugin, HostApiPigeon {
 	}
 
 	func tagSessionInvalidate(alertMessage: String?, errorMessage: String?) throws {
-		print("[NfcManagerPlugin] tagSessionInvalidate called.")
-		guard let tagSession = tagSession else {
-			print("[NfcManagerPlugin] Error: No active sessions to invalidate.")
-			throw FlutterError(
-				code: "no_active_sessions", message: "Session is not active.", details: nil)
-		}
-		if let alertMessage = alertMessage { tagSession.alertMessage = alertMessage }
-		if let errorMessage = errorMessage {
-			print("[NfcManagerPlugin] Invalidating session with error message: \(errorMessage).")
-			tagSession.invalidate(errorMessage: errorMessage)
-		} else {
-			print("[NfcManagerPlugin] Invalidating session.")
-			tagSession.invalidate()
-		}
-		self.tagSession = nil
-		cachedTags.removeAll()
-		print("[NfcManagerPlugin] Session invalidated.")
-	}
+    // CoreNFC work should be on the main thread
+    if !Thread.isMainThread {
+        DispatchQueue.main.async { [weak self] in
+            try? self?.tagSessionInvalidate(alertMessage: alertMessage, errorMessage: errorMessage)
+        }
+        return
+    }
+
+    print("[NfcManagerPlugin] tagSessionInvalidate called.")
+
+    // If there is no active session, just no-op (don't throw -> no Flutter error)
+    guard let tagSession = self.tagSession else {
+        print("[NfcManagerPlugin] No active sessions to invalidate. (no-op)")
+        return
+    }
+
+    // Ensure local cleanup even if anything below changes
+    defer {
+        self.tagSession = nil
+        self.cachedTags.removeAll()
+        print("[NfcManagerPlugin] Session invalidated (local cleanup).")
+    }
+
+    if let alertMessage = alertMessage {
+        tagSession.alertMessage = alertMessage
+    }
+
+    if let errorMessage = errorMessage, !errorMessage.isEmpty {
+        print("[NfcManagerPlugin] Invalidating session with error message: \(errorMessage).")
+        tagSession.invalidate(errorMessage: errorMessage)
+    } else {
+        print("[NfcManagerPlugin] Invalidating session.")
+        tagSession.invalidate()
+    }
+}
+
 
 	func tagSessionRestartPolling() throws {
 		print("[NfcManagerPlugin] tagSessionRestartPolling called.")
